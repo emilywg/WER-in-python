@@ -10,16 +10,16 @@ def editDistance(r, h):
 
     Main algorithm used is dynamic programming.
 
-    Attributes: 
+    Attributes:
         r -> the list of words produced by splitting reference sentence.
         h -> the list of words produced by splitting hypothesis sentence.
     '''
     d = numpy.zeros((len(r)+1)*(len(h)+1), dtype=numpy.uint8).reshape((len(r)+1, len(h)+1))
     for i in range(len(r)+1):
         for j in range(len(h)+1):
-            if i == 0: 
+            if i == 0:
                 d[0][j] = j
-            elif j == 0: 
+            elif j == 0:
                 d[i][0] = i
     for i in range(1, len(r)+1):
         for j in range(1, len(h)+1):
@@ -36,7 +36,7 @@ def getStepList(r, h, d):
     '''
     This function is to get the list of steps in the process of dynamic programming.
 
-    Attributes: 
+    Attributes:
         r -> the list of words produced by splitting reference sentence.
         h -> the list of words produced by splitting hypothesis sentence.
         d -> the matrix built when calulating the editting distance of h and r.
@@ -45,9 +45,9 @@ def getStepList(r, h, d):
     y = len(h)
     list = []
     while True:
-        if x == 0 and y == 0: 
+        if x == 0 and y == 0:
             break
-        elif x >= 1 and y >= 1 and d[x][y] == d[x-1][y-1] and r[x-1] == h[y-1]: 
+        elif x >= 1 and y >= 1 and d[x][y] == d[x-1][y-1] and r[x-1] == h[y-1]:
             list.append("e")
             x = x - 1
             y = y - 1
@@ -65,15 +65,16 @@ def getStepList(r, h, d):
             y = y
     return list[::-1]
 
-def alignedPrint(list, r, h, result):
+def alignedPrint(list, r, h, result, tag):
     '''
     This funcition is to print the result of comparing reference and hypothesis sentences in an aligned way.
-    
+
     Attributes:
         list   -> the list of steps.
         r      -> the list of words produced by splitting reference sentence.
         h      -> the list of words produced by splitting hypothesis sentence.
         result -> the rate calculated based on edit distance.
+        tag    -> indicate printing style for CER or WER.
     '''
     print "REF:",
     for i in range(len(list)):
@@ -106,7 +107,8 @@ def alignedPrint(list, r, h, result):
                     count += 1
             index = i - count
             print r[index],
-    print
+    if tag == "wer":
+        print
     print "HYP:",
     for i in range(len(list)):
         if list[i] == "d":
@@ -138,7 +140,8 @@ def alignedPrint(list, r, h, result):
                     count += 1
             index = i - count
             print h[index],
-    print
+    if tag == "wer":
+        print
     print "EVA:",
     for i in range(len(list)):
         if list[i] == "d":
@@ -178,27 +181,72 @@ def alignedPrint(list, r, h, result):
             index = i - count
             print " " * (len(r[index])),
     print
-    print "WER: " + result
+    if tag == "cer":
+        print "CER: " + result
+    else:
+        print "WER: " + result
+    print
 
-def wer(r, h):
+def singleErrorRate(r, h, tag):
     """
-    This is a function that calculate the word error rate in ASR.
-    You can use it like this: wer("what is it".split(), "what is".split()) 
+    This is a function that calculate the WER or CER for a single sentence input.
     """
     # build the matrix
-    d = editDistance(r, h)
+
+    d= editDistance(r, h)
 
     # find out the manipulation steps
     list = getStepList(r, h, d)
 
     # print the result in aligned way
-    result = float(d[len(r)][len(h)]) / len(r) * 100
-    result = str("%.2f" % result) + "%"
-    alignedPrint(list, r, h, result)
+    errors = d[len(r)][len(h)]
+    raw_result = float(errors) / len(r)
+    float_result = raw_result * 100
+    result = str("%.2f" % float_result) + "%"
+    alignedPrint(list, r, h, result, tag)
+    return float_result, errors
+
+def totalErrorRate(r, h, tag):
+    """
+    This is a function that calculate the WER or CER in ASR.
+    You can use it like this: wer("what is it".split(), "what is".split())
+    """
+    errors = 0
+    tokenCount = 0
+    for i in range(len(r)):
+        if tag == "wer":
+            ref = r[i].split()
+            hyp = h[i].split()
+            _, numErrs = singleErrorRate(ref, hyp, tag)
+        elif tag == "cer":
+            ref = r[i].replace(" ","")
+            hyp = h[i].replace(" ","")
+            _, numErrs = singleErrorRate(ref, hyp, tag)
+
+        errors = errors + numErrs
+        tokenCount = tokenCount + len(ref)
+
+    float_result = float(errors)/tokenCount * 100
+    return float_result, errors, tokenCount
 
 if __name__ == '__main__':
     filename1 = sys.argv[1]
     filename2 = sys.argv[2]
-    r = file(filename1).read().split()
-    h = file(filename2).read().split()
-    wer(r, h)   
+    hyp = []
+    ref = []
+    with open(filename1, 'r') as h:
+        for line in h:
+            hyp.append(line)
+    with open(filename2, 'r') as r:
+        for line in r:
+            ref.append(line)
+
+    print "########## Compute CER ##########"
+    cer, err_cer, count_cer = totalErrorRate(ref, hyp, "cer")
+    print "########## Compute WER ##########"
+    wer, err_wer, count_wer = totalErrorRate(ref, hyp, "wer")
+    print "########## Scoring is completed ##########"
+    result = str("%.2f" % cer) + "%"
+    print "CERs: %s (%d/%d)" % (result, err_cer, count_cer)
+    result = str("%.2f" % wer) + "%"
+    print "WERs: %s (%d/%d)" % (result, err_wer, count_wer)
